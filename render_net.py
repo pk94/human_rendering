@@ -1,6 +1,5 @@
-import torch
-import torch.nn as nn
 from blocks import *
+
 
 class RenderNet(nn.Module):
     def __init__(self, n_channels, n_classes):
@@ -30,6 +29,7 @@ class RenderNet(nn.Module):
         x = self.up3(x)
         logits = self.conv_out(x)
         return logits
+
 
 class PatchDiscriminator(nn.Module):
     def __init__(self, n_channels):
