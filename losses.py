@@ -20,18 +20,7 @@ def l1_distance(tensor, tensor_sub):
 
 
 
-def perceptual_loss(model, ground_truth, generated):
-    save_output = SaveOutput()
-    hook_handles = []
-    for layer in model.modules():
-        if isinstance(layer, nn.ReLU):
-            handle = layer.register_forward_hook(save_output)
-            hook_handles.append(handle)
-    model(ground_truth)
-    ground_truth_activations = save_output.outputs
-    save_output.clear()
-    model(generated)
-    generated_activations = save_output.outputs
+def perceptual_loss(ground_truth_activations, generated_activations):
     loss = 0
     for ground_truth_activation, generated_activation in zip(ground_truth_activations, generated_activations):
         num_elements = 1
@@ -48,15 +37,19 @@ def adversarial_loss(models, real_image, fake_image, is_discriminator):
     for idx, model in enumerate(models):
         if is_discriminator:
             real_image_down = F.interpolate(real_image, scale_factor=1 / (2 ** idx), mode='bilinear')
-            disc_real_out = model(real_image_down)
+            disc_real_out = activation(model(real_image_down))
         fake_image_down = F.interpolate(fake_image, scale_factor=1 / (2 ** idx), mode='bilinear')
-        disc_fake_out = model(fake_image_down)
+        disc_fake_out = activation(model(fake_image_down))
         if is_discriminator:
-            real_loss = loss_function(activation(disc_real_out), torch.ones_like(disc_real_out))
-            fake_loss = loss_function(activation(disc_fake_out), torch.zeros_like(disc_fake_out))
+            if idx == 0:
+                print('\n')
+                print(torch.mean(disc_real_out[0]))
+                print(torch.mean(disc_fake_out[0]))
+            real_loss = loss_function(disc_real_out, torch.ones_like(disc_real_out))
+            fake_loss = loss_function(disc_fake_out, torch.zeros_like(disc_fake_out))
             loss += (real_loss + fake_loss) / 2
         else:
-            fake_loss = loss_function(activation(disc_fake_out), torch.ones_like(disc_fake_out))
+            fake_loss = loss_function(disc_fake_out, torch.ones_like(disc_fake_out))
             loss += fake_loss
     return loss / len(models)
 

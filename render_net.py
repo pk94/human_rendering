@@ -36,6 +36,7 @@ class PatchDiscriminator(nn.Module):
         super(PatchDiscriminator, self).__init__()
         self.down1 = DownsampleBlockStride(n_channels, 64, kernel_size=4)  # (bs, 128, 128, 64)
         self.down2 = DownsampleBlockStride(64, 128, kernel_size=4)  # (bs, 64, 64, 128)
+        self.down2 = DownsampleBlockStride(64, 128, kernel_size=4)  # (bs, 64, 64, 128)
         self.down3 = DownsampleBlockStride(128, 256, kernel_size=4)  # (bs, 32, 32, 256)
         self.zero_pad = nn.ZeroPad2d(1)
         self.conv = nn.Conv2d(256, 512, kernel_size=4)

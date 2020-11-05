@@ -3,9 +3,11 @@ import pytorch_lightning as pl
 from feature_net import *
 from losses import *
 from datasets import *
+import matplotlib.pyplot as plt
+from torchvision.utils import save_image
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 
 class HumanRendering(pl.LightningModule):
 
@@ -13,10 +15,21 @@ class HumanRendering(pl.LightningModule):
         super(HumanRendering, self).__init__()
         self.data_path = data_path
         self.batch_size = batch_size
-        self.feature_net = FeatureNet(3, 16)
-        self.render_net = RenderNet(16, 3)
-        self.discriminators = [PatchDiscriminator(3), PatchDiscriminator(3), PatchDiscriminator(3)]
-        self.vgg19 = models.vgg19(pretrained=True)
+        self.feature_net = FeatureNet(3, 16).cuda()
+        self.render_net = RenderNet(16, 3).cuda()
+        self.discriminators = [PatchDiscriminator(3).cuda(), PatchDiscriminator(3).cuda(), PatchDiscriminator(3).cuda()]
+        self.vgg19 = models.vgg19(pretrained=True).cuda()
+        self.hook = SaveOutput()
+        hook_handles = []
+        for layer in self.vgg19.modules():
+            if isinstance(layer, nn.ReLU):
+                handle = layer.register_forward_hook(self.hook)
+                hook_handles.append(handle)
+        self.disc_total_loss = 0
+        self.gen_total_loss = 0
+        self.gen_losses = []
+        self.disc_losses = []
+
 
     def forward(self, x):
         feature_out = self.feature_net(x)
@@ -24,22 +37,40 @@ class HumanRendering(pl.LightningModule):
         return feature_out, render_out
 
     def training_step(self, train_batch, batch_nb, optimizer_idx):
-        input_batch = train_batch[:int(train_batch.shape[0] / 2), :, :, :]
+        # input_batch = train_batch[:int(train_batch.shape[0] / 2), :, :, :]
+        input_batch = torch.randn_like(input_batch)
         target_batch = train_batch[int(train_batch.shape[0] / 2):, :, :, :]
-
+        generated_input = input_batch[0, :, :, :].unsqueeze(0)
+        generated_image = self.forward(generated_input)[1]
+        save_image(generated_image, 'image.png')
         # train generator
-        if optimizer_idx == 0 or optimizer_idx == 1:
+        if optimizer_idx == 0:
             feature_out, render_out = self.forward(input_batch)
             loss_inpainting = inpainting_loss(feature_out, input_batch, target_batch)
             loss_adversarial = adversarial_loss(self.discriminators, input_batch, target_batch, is_discriminator=False)
-            loss_perceptual = perceptual_loss(self.vgg19, target_batch, render_out)
-            print(f'\nGen loss: {loss_inpainting}  {loss_adversarial}  {loss_perceptual}')
-            return loss_inpainting + loss_adversarial + loss_perceptual
+            self.vgg19.forward(target_batch)
+            ground_truth_activations = self.hook.outputs
+            self.hook.clear()
+            self.vgg19.forward(input_batch)
+            generated_activations = self.hook.outputs
+            self.hook.clear()
+            loss_perceptual = perceptual_loss(ground_truth_activations, generated_activations)
+            total_loss = loss_inpainting + loss_adversarial + loss_perceptual
+            # print(f'\nGen loss: {total_loss}')
+            self.gen_total_loss = total_loss
+            return total_loss
 
         # train discriminator
-        if optimizer_idx == 2 or optimizer_idx == 3 or optimizer_idx == 4:
+        if optimizer_idx == 1:
             loss_adversarial = adversarial_loss(self.discriminators, input_batch, target_batch, is_discriminator=True)
-            print(f'Disc loss: {loss_adversarial}')
+            print(f'\nDisc loss: {self.disc_total_loss}, {self.gen_total_loss}')
+            self.gen_losses.append(self.gen_total_loss/1000)
+            self.disc_losses.append(self.disc_total_loss)
+            plt.plot(self.gen_losses)
+            plt.plot(self.disc_losses)
+            plt.savefig('fig.jpg')
+            self.disc_total_loss = 0
+            self.disc_total_loss += loss_adversarial
             return loss_adversarial
 
     def configure_optimizers(self):
@@ -47,19 +78,19 @@ class HumanRendering(pl.LightningModule):
         b1 = 0.5
         b2 = 0
 
-        opt_feature_net = torch.optim.Adam(self.feature_net.parameters(), lr=lr, betas=(b1, b2))
-        opt_render_net = torch.optim.Adam(self.render_net.parameters(), lr=lr, betas=(b1, b2))
-        opt_dicriminator_0 = torch.optim.Adam(self.discriminators[0].parameters(), lr=lr, betas=(b1, b2))
-        opt_dicriminator_1 = torch.optim.Adam(self.discriminators[1].parameters(), lr=lr, betas=(b1, b2))
-        opt_dicriminator_2 = torch.optim.Adam(self.discriminators[2].parameters(), lr=lr, betas=(b1, b2))
-        return [opt_feature_net, opt_render_net, opt_dicriminator_0, opt_dicriminator_1, opt_dicriminator_2], []
+        opt_gen = torch.optim.Adam(list(self.feature_net.parameters()) + list(self.render_net.parameters()),
+                                   lr=lr, betas=(b1, b2))
+        opt_disc = torch.optim.Adam(list(self.discriminators[0].parameters()) +
+                                    list(self.discriminators[1].parameters()) +
+                                    list(self.discriminators[2].parameters()), lr=lr, betas=(b1, b2))
+        return [opt_gen, opt_disc], []
 
     def train_dataloader(self):
         dataset = VideoDataset(self.data_path)
         return DataLoader(dataset, batch_size=self.batch_size)
 
 
-model = HumanRendering('data/train/')
-trainer = pl.Trainer()
+model = HumanRendering('data/train/', batch_size=16)
+trainer = pl.Trainer(gpus=1, auto_select_gpus=True)
 trainer.fit(model)
 
