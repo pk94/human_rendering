@@ -41,7 +41,7 @@ class PatchDiscriminator(nn.Module):
         self.zero_pad = nn.ZeroPad2d(1)
         self.conv = nn.Conv2d(256, 512, kernel_size=4)
         self.norm = nn.BatchNorm2d(512)
-        self.relu = nn.ReLU(inplace=True)
+        self.lrelu = nn.LeakyReLU(inplace=True)
         self.out = nn.Conv2d(512, 1, kernel_size=4)
 
     def forward(self, x):
@@ -51,7 +51,7 @@ class PatchDiscriminator(nn.Module):
         x = self.zero_pad(x)
         x = self.conv(x)
         x = self.norm(x)
-        x = self.relu(x)
+        x = self.lrelu(x)
         x = self.zero_pad(x)
         logits = self.out(x)
         return logits

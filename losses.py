@@ -16,7 +16,7 @@ class SaveOutput:
 
 def l1_distance(tensor, tensor_sub):
     diff_tensor = torch.abs(tensor - tensor_sub)
-    return torch.sum(diff_tensor)
+    return torch.mean(diff_tensor)
 
 
 
@@ -26,11 +26,11 @@ def perceptual_loss(ground_truth_activations, generated_activations):
         num_elements = 1
         for dim in ground_truth_activation.size()[1:]:
             num_elements *= dim
-        loss += l1_distance(ground_truth_activation, generated_activation) / num_elements
+        loss += l1_distance(ground_truth_activation, generated_activation) / len(ground_truth_activations)
     return loss
 
 
-def adversarial_loss(models, real_image, fake_image, is_discriminator):
+def adversarial_loss(models, real_image, fake_image, is_discriminator, is_feature):
     loss_function = nn.BCELoss()
     loss = 0
     activation = nn.Sigmoid()
@@ -39,12 +39,11 @@ def adversarial_loss(models, real_image, fake_image, is_discriminator):
             real_image_down = F.interpolate(real_image, scale_factor=1 / (2 ** idx), mode='bilinear')
             disc_real_out = activation(model(real_image_down))
         fake_image_down = F.interpolate(fake_image, scale_factor=1 / (2 ** idx), mode='bilinear')
-        disc_fake_out = activation(model(fake_image_down))
+        if is_feature:
+            disc_fake_out = activation(model(fake_image_down[:, :3, :, :]))
+        else:
+            disc_fake_out = activation(model(fake_image_down))
         if is_discriminator:
-            if idx == 0:
-                print('\n')
-                print(torch.mean(disc_real_out[0]))
-                print(torch.mean(disc_fake_out[0]))
             real_loss = loss_function(disc_real_out, torch.ones_like(disc_real_out))
             fake_loss = loss_function(disc_fake_out, torch.zeros_like(disc_fake_out))
             loss += (real_loss + fake_loss) / 2
