@@ -1,8 +1,22 @@
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
-from PIL import Image
 import os
+from pathlib import Path
+import random
+from operator import itemgetter
+from pathlib import Path
+from typing import Any, Optional
+
+import h5py
 import numpy as np
+import torch
+from functional import seq
+from PIL import Image
+from pytorch_lightning.core import datamodule
+from torch.utils.data import Dataset
+from torch.utils.data.dataloader import DataLoader
+from torchvision import transforms
+from torchvision.transforms.transforms import Compose
+import matplotlib.pyplot as plt
+from torchvision.utils import save_image
 
 
 class VideoDataset(Dataset):
@@ -28,3 +42,51 @@ class VideoDataset(Dataset):
         image = self.transform(image)
 
         return image
+
+
+class DeepFashionDataset(Dataset):
+    def __init__(self, data_dir):
+        super().__init__()
+        self.data_dir = data_dir
+        self.files_list = []
+        for path, subdirs, files in os.walk(self.data_dir):
+            for filenamename in files:
+                if filenamename.endswith('h5'):
+                    self.files_list.append(Path(os.path.join(path, filenamename)))
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+
+    def __len__(self):
+        return len(self.files_list)
+
+    def __getitem__(self, index):
+        sample_path = self.files_list[index]
+        sample_id_path = sample_path.parent
+        target_file_path = random.choice([x for x in sample_id_path.iterdir() if x.is_file() and x != sample_path])
+        sample_image, sample_instances, sample_textures, sample_uv = self.load_h5_file(sample_path)
+        target_image, target_instances, target_textures, target_uv = self.load_h5_file(target_file_path)
+        sample_dict = {
+            'image': sample_image,
+            'instances': sample_instances,
+            'texture': sample_textures,
+            'uv': sample_uv
+        }
+        target_dict = {
+            'image': target_image,
+            'instances': target_instances,
+            'texture': target_textures,
+            'uv': target_uv
+        }
+        return {
+            'sample': sample_dict,
+            'target': target_dict
+        }
+
+    def load_h5_file(self, path):
+        with h5py.File(path, mode="r") as h5_file:
+            frame = torch.from_numpy(h5_file["frame"][:].astype(np.float32)).permute((2, 0, 1)).true_divide(255).mul(2).sub(1)
+            instances = torch.from_numpy(h5_file["i"][:].astype(np.float32))
+            texture = torch.from_numpy(h5_file["texture"][:].astype(np.float32)).permute((2, 0, 1)).true_divide(255).mul(2).sub(1)
+            uv = torch.from_numpy(h5_file["uv"][:].astype(np.float32)).permute((2, 0, 1))
+        return frame, instances, texture, uv
