@@ -1,4 +1,3 @@
-import torch.nn as nn
 from blocks import *
 
 
@@ -20,6 +19,7 @@ class FeatureNet(nn.Module):
         self.up3 = UpsampleBlock(256, 128 // factor, bilinear)
         self.up4 = UpsampleBlock(128, 64, bilinear)
         self.outc = DoubleConv(64, n_classes)
+        self.activation = nn.Tanh()
 
     def forward(self, x):
         x1 = self.inc(x)
@@ -32,4 +32,5 @@ class FeatureNet(nn.Module):
         x = self.up3(x, x2)
         x = self.up4(x, x1)
         logits = self.outc(x)
-        return logits
+        out = self.activation(logits)
+        return out

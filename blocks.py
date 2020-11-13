@@ -10,11 +10,11 @@ class DoubleConv(nn.Module):
             mid_channels = out_channels
         self.double_conv = nn.Sequential(
             nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(mid_channels),
-            nn.LeakyReLU(inplace=True),
+            nn.InstanceNorm2d(mid_channels),
+            nn.ReLU(inplace=True),
             nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(inplace=True)
+            nn.InstanceNorm2d(out_channels),
+            nn.ReLU(inplace=True)
         )
 
     def forward(self, x):
@@ -24,13 +24,13 @@ class DownsampleBlockMax(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.avgpool_conv = nn.Sequential(
-            nn.AvgPool2d(2),
+        self.maxpool_conv = nn.Sequential(
+            nn.MaxPool2d(2),
             DoubleConv(in_channels, out_channels)
         )
 
     def forward(self, x):
-        return self.avgpool_conv(x)
+        return self.maxpool_conv(x)
 
 class DownsampleBlockStride(nn.Module):
 
@@ -38,8 +38,8 @@ class DownsampleBlockStride(nn.Module):
         super().__init__()
         self.down_conv = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=1, stride=2),
-            nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(inplace=True)
+            nn.InstanceNorm2d(out_channels),
+            nn.ReLU(inplace=True)
         )
 
     def forward(self, x):
@@ -78,8 +78,8 @@ class UpsampleBlockRender(nn.Module):
 
         self.up = nn.Sequential(
             nn.ConvTranspose2d(in_channels , out_channels, kernel_size=3, stride=2, output_padding=1, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(inplace=True)
+            nn.InstanceNorm2d(out_channels),
+            nn.ReLU(inplace=True)
         )
 
     def forward(self, x):
@@ -92,20 +92,20 @@ class ResidualBlock(nn.Module):
 
         self.conv_block1 = nn.Sequential(
             nn.Conv2d(channel_num, channel_num, 3, padding=1),
-            nn.BatchNorm2d(channel_num),
-            nn.LeakyReLU(),
+            nn.InstanceNorm2d(channel_num),
+            nn.ReLU(),
         )
         self.conv_block2 = nn.Sequential(
             nn.Conv2d(channel_num, channel_num, 3, padding=1),
-            nn.BatchNorm2d(channel_num),
+            nn.InstanceNorm2d(channel_num),
         )
-        self.lrelu = nn.LeakyReLU()
+        self.relu = nn.ReLU()
 
     def forward(self, x):
         residual = x
         x = self.conv_block1(x)
         x = self.conv_block2(x)
         x = x + residual
-        out = self.lrelu(x)
+        out = self.relu(x)
         return out
 

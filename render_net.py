@@ -16,6 +16,7 @@ class RenderNet(nn.Module):
         self.up2 = UpsampleBlockRender(n_channels * 4, n_channels * 2)
         self.up3 = UpsampleBlockRender(n_channels * 2, n_channels)
         self.conv_out = nn.Conv2d(n_channels, n_classes, kernel_size=7, padding=3)
+        self.activation = nn.Tanh()
 
     def forward(self, x):
         x = self.conv_in(x)
@@ -27,7 +28,8 @@ class RenderNet(nn.Module):
         x = self.up2(x)
         x = self.up3(x)
         logits = self.conv_out(x)
-        return logits
+        out = self.activation(logits)
+        return out
 
 
 class PatchDiscriminator(nn.Module):
@@ -40,7 +42,7 @@ class PatchDiscriminator(nn.Module):
         self.zero_pad = nn.ZeroPad2d(1)
         self.conv = nn.Conv2d(256, 512, kernel_size=4)
         self.norm = nn.BatchNorm2d(512)
-        self.lrelu = nn.LeakyReLU(inplace=True)
+        self.relu = nn.ReLU(inplace=True)
         self.out = nn.Conv2d(512, 1, kernel_size=4)
 
     def forward(self, x):
@@ -50,7 +52,7 @@ class PatchDiscriminator(nn.Module):
         x = self.zero_pad(x)
         x = self.conv(x)
         x = self.norm(x)
-        x = self.lrelu(x)
+        x = self.relu(x)
         x = self.zero_pad(x)
         logits = self.out(x)
         return logits

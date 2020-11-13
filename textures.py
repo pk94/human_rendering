@@ -1,16 +1,7 @@
 from typing import Optional
-
-import numpy as np
 import torch
 import torch.nn as nn
-import matplotlib.pyplot as plt
-import h5py
-import zipfile
 import numpy as np
-import cv2
-from functional import seq
-from pathlib import Path
-from skimage.color import label2rgb
 
 from common import UV_LOOKUP_TABLE
 

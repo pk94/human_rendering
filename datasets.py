@@ -14,9 +14,7 @@ from pytorch_lightning.core import datamodule
 from torch.utils.data import Dataset
 from torch.utils.data.dataloader import DataLoader
 from torchvision import transforms
-from torchvision.transforms.transforms import Compose
-import matplotlib.pyplot as plt
-from torchvision.utils import save_image
+from random import shuffle
 
 
 class VideoDataset(Dataset):
@@ -53,9 +51,8 @@ class DeepFashionDataset(Dataset):
             for filenamename in files:
                 if filenamename.endswith('h5'):
                     self.files_list.append(Path(os.path.join(path, filenamename)))
-        self.transform = transforms.Compose([
-            transforms.ToTensor(),
-        ])
+        shuffle(self.files_list)
+
 
     def __len__(self):
         return len(self.files_list)
@@ -63,7 +60,8 @@ class DeepFashionDataset(Dataset):
     def __getitem__(self, index):
         sample_path = self.files_list[index]
         sample_id_path = sample_path.parent
-        target_file_path = random.choice([x for x in sample_id_path.iterdir() if x.is_file() and x != sample_path])
+        target_file_path = random.choice([x for x in sample_id_path.iterdir() if x.is_file()])
+        # target_file_path = sample_path
         sample_image, sample_instances, sample_textures, sample_uv = self.load_h5_file(sample_path)
         target_image, target_instances, target_textures, target_uv = self.load_h5_file(target_file_path)
         sample_dict = {
