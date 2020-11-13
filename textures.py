@@ -91,7 +91,7 @@ class MapDensePoseTexModule(nn.Module):
         super().__init__()
 
         lut_table = torch.from_numpy(
-            np.load(UV_LOOKUP_TABLE.as_posix())
+            np.load("/content/human_rendering/assets/dp_uv_lookup_256.npy")
         ).float()
         _, h, w, _ = lut_table.shape
         lut_table = torch.cat((torch.zeros((1, h, w, 2)), lut_table), dim=0)
