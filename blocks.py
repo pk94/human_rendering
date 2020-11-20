@@ -4,18 +4,27 @@ import torch.nn.functional as F
 
 class DoubleConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, mid_channels=None):
+    def __init__(self, in_channels, out_channels, mid_channels=None, relu_last=True):
         super().__init__()
         if not mid_channels:
             mid_channels = out_channels
-        self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
-            nn.InstanceNorm2d(mid_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
-            nn.InstanceNorm2d(out_channels),
-            nn.ReLU(inplace=True)
-        )
+        if relu_last:
+            self.double_conv = nn.Sequential(
+                nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
+                nn.BatchNorm2d(mid_channels),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
+                nn.BatchNorm2d(out_channels),
+                nn.ReLU(inplace=True)
+            )
+        else:
+            self.double_conv = nn.Sequential(
+                nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
+                nn.BatchNorm2d(mid_channels),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
+                nn.BatchNorm2d(out_channels),
+            )
 
     def forward(self, x):
         return self.double_conv(x)
@@ -38,7 +47,7 @@ class DownsampleBlockStride(nn.Module):
         super().__init__()
         self.down_conv = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=1, stride=2),
-            nn.InstanceNorm2d(out_channels),
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
 
@@ -78,7 +87,7 @@ class UpsampleBlockRender(nn.Module):
 
         self.up = nn.Sequential(
             nn.ConvTranspose2d(in_channels , out_channels, kernel_size=3, stride=2, output_padding=1, padding=1),
-            nn.InstanceNorm2d(out_channels),
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
 
@@ -92,12 +101,12 @@ class ResidualBlock(nn.Module):
 
         self.conv_block1 = nn.Sequential(
             nn.Conv2d(channel_num, channel_num, 3, padding=1),
-            nn.InstanceNorm2d(channel_num),
+            nn.BatchNorm2d(channel_num),
             nn.ReLU(),
         )
         self.conv_block2 = nn.Sequential(
             nn.Conv2d(channel_num, channel_num, 3, padding=1),
-            nn.InstanceNorm2d(channel_num),
+            nn.BatchNorm2d(channel_num),
         )
         self.relu = nn.ReLU()
 

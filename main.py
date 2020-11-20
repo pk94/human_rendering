@@ -5,7 +5,7 @@ from losses import *
 from datasets import *
 from textures import MapDensePoseTexModule
 import matplotlib.pyplot as plt
-from pytorch_lightning.callbacks import ModelCheckpoint
+from torch.utils.data import DataLoader
 import cv2
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -15,11 +15,12 @@ class HumanRendering(pl.LightningModule):
 
     def __init__(self, data_path, batch_size=64):
         super(HumanRendering, self).__init__()
+        self.save_hyperparameters()
         self.data_path = data_path
         self.batch_size = batch_size
         self.texture_mapper = MapDensePoseTexModule(256)
-        self.feature_net = FeatureNet(3, 3).to(device)
-        self.render_net = RenderNet(3, 3).to(device)
+        self.feature_net = FeatureNet(3, 16).to(device)
+        self.render_net = RenderNet(16, 3).to(device)
         self.discriminators_feature = [PatchDiscriminator(3).to(device), PatchDiscriminator(3).to(device),
                                        PatchDiscriminator(3).to(device)]
         self.discriminators_render = [PatchDiscriminator(3).to(device), PatchDiscriminator(3).to(device),
@@ -46,7 +47,8 @@ class HumanRendering(pl.LightningModule):
                                              train_batch['target']['uv'])
         # feature_out_tex = self.apply_texture(feature_out, train_batch['sample']['instances'],
         #                                      train_batch['sample']['uv'])
-        perm = torch.LongTensor([2, 1, 0])
+        # perm = torch.LongTensor([2, 1, 0, ...])
+        perm = torch.LongTensor(np.concatenate([np.array([2, 1, 0]), np.arange(3, 16)]))
         feature_out_tex = feature_out_tex[:, perm, :, :]
         render_out = self.render_net(feature_out_tex)
         return feature_out, feature_out_tex, render_out
@@ -125,7 +127,7 @@ class HumanRendering(pl.LightningModule):
     def from_batch_generate_image(self, batch):
         textures_applied = self.forward(batch)[1]
         generated_image = textures_applied[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy().astype(np.uint8)
-        cv2.imwrite('genrated_texture.jpg', generated_image)
+        cv2.imwrite('genrated_texture.jpg', generated_image[:, :, :3])
 
         original_im = batch['sample']['image']
         generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
@@ -149,8 +151,6 @@ class HumanRendering(pl.LightningModule):
         return output
 
 model = HumanRendering('/home/pawel/Datasets/deepfashion-processed/DeepfashionProcessed', batch_size=2)
-checkpoint_path = '/home/pawel/PycharmProjects/human_rendering/checkpoints'
-# model = HumanRendering.load_from_checkpoint(data_path='/home/pawel/Datasets/deepfashion-processed/deepfashion_single_image', batch_size=1, checkpoint_path=f'{checkpoint_path}/epoch=999.ckpt')
-checkpoint_callback = ModelCheckpoint(filepath=checkpoint_path)
-trainer = pl.Trainer(gpus=1, auto_select_gpus=True, checkpoint_callback=checkpoint_callback, max_epochs=1000000)
+
+trainer = pl.Trainer(gpus=1, auto_select_gpus=True, max_epochs=1000000, reload_dataloaders_every_epoch=True)
 trainer.fit(model)

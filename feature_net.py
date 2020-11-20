@@ -18,7 +18,7 @@ class FeatureNet(nn.Module):
         self.up2 = UpsampleBlock(512, 256 // factor, bilinear)
         self.up3 = UpsampleBlock(256, 128 // factor, bilinear)
         self.up4 = UpsampleBlock(128, 64, bilinear)
-        self.outc = DoubleConv(64, n_classes)
+        self.outc = DoubleConv(64, n_classes, relu_last=False)
         self.activation = nn.Tanh()
 
     def forward(self, x):
