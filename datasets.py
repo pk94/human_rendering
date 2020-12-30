@@ -46,7 +46,7 @@ class DeepFashionDataset(Dataset):
                 if filenamename.endswith('h5'):
                     self.files_list.append(Path(os.path.join(path, filenamename)))
         shuffle(self.files_list)
-        self.files_list = self.files_list[:1000]
+        # self.files_list = self.files_list[:1000]
 
 
     def __len__(self):
