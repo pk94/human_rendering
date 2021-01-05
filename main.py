@@ -12,6 +12,7 @@ import cv2
 from datetime import datetime
 from sphere_face import sphere20a
 from facenet_pytorch import MTCNN, InceptionResnetV1
+import torch
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -22,7 +23,7 @@ class HumanRendering(pl.LightningModule):
         self.save_hyperparameters()
         self.data_path = data_path
         self.batch_size = batch_size
-        self.texture_mapper = MapDensePoseTexModule(256)
+        self.texture_mapper = MapDensePoseTexModule(256).eval()
         self.feature_net = FeatureNet(3, 16).to(device)
         self.render_net = RenderNet(16, 3).to(device)
         self.discriminators_feature = [PatchDiscriminator(3).to(device), PatchDiscriminator(3).to(device),
@@ -30,8 +31,6 @@ class HumanRendering(pl.LightningModule):
         self.discriminators_render = [PatchDiscriminator(3).to(device), PatchDiscriminator(3).to(device),
                                       PatchDiscriminator(3).to(device)]
         self.vgg19 = models.vgg19(pretrained=True).to(device).eval()
-        # self.sphereface = sphere20a(feature=True).to(device).eval()
-        # self.sphereface.load_state_dict(torch.load('pretrained_models/sphere20a_20171020.pth'))
         self.face_detector = MTCNN(image_size=160, margin=15, device='cuda').eval()
         self.face_rec = InceptionResnetV1(pretrained='vggface2').eval().cuda()
         self.hook = SaveOutput()
@@ -68,10 +67,10 @@ class HumanRendering(pl.LightningModule):
                                                         feature_out_tex, is_discriminator=False, is_feature=True)
             loss_adversarial_render = adversarial_loss(self.discriminators_render, train_batch['target']['image'],
                                                        render_out, is_discriminator=False, is_feature=False)
-            self.vgg19.forward(train_batch['target']['image'])
+            self.vgg19(train_batch['target']['image'])
             ground_truth_activations = self.hook.outputs
             self.hook.clear()
-            self.vgg19.forward(render_out)
+            self.vgg19(render_out)
             generated_activations = self.hook.outputs
             self.hook.clear()
             loss_perceptual = perceptual_loss(ground_truth_activations, generated_activations)
@@ -79,7 +78,7 @@ class HumanRendering(pl.LightningModule):
                                                train_batch['sample']['instances'], train_batch['target']['image'],
                                                train_batch['target']['instances'], render_out, self.face_detector)
             total_loss = (loss_adversarial_render + loss_adversarial_feature + loss_inpainting
-                          + 10 * loss_perceptual + 5 * loss_identity) / 5
+                          + 5 * loss_perceptual + 2 * loss_identity) / 5
             self.total_loss['generator'] = total_loss
             return total_loss
 
@@ -87,13 +86,13 @@ class HumanRendering(pl.LightningModule):
         if optimizer_idx == 1:
             loss_adversarial_feature = adversarial_loss(self.discriminators_feature, train_batch['target']['image'],
                                                         feature_out_tex, is_discriminator=True, is_feature=True)
-            self.total_loss['discriminator'] += loss_adversarial_feature
+            self.total_loss['discriminator'] += 2 * loss_adversarial_feature
             return loss_adversarial_feature
 
         if optimizer_idx == 2:
             loss_adversarial_render = adversarial_loss(self.discriminators_render, train_batch['target']['image'],
                                                        render_out, is_discriminator=True, is_feature=False)
-            self.total_loss['discriminator'] += loss_adversarial_render
+            self.total_loss['discriminator'] += 2 * loss_adversarial_render
             self.on_training_step_end()
             self.from_batch_generate_image(train_batch)
             return loss_adversarial_render
@@ -111,7 +110,7 @@ class HumanRendering(pl.LightningModule):
         opt_disc_render = torch.optim.Adam(list(self.discriminators_render[0].parameters()) +
                                            list(self.discriminators_render[1].parameters()) +
                                            list(self.discriminators_render[2].parameters()), lr=lr, betas=(b1, b2))
-        lr_lambda = lambda epoch: 0.95
+        lr_lambda = lambda epoch: 0.9999
         scheduler_gen = torch.optim.lr_scheduler.MultiplicativeLR(opt_gen, lr_lambda)
         scheduler_disc_feature = torch.optim.lr_scheduler.MultiplicativeLR(opt_disc_feature, lr_lambda)
         scheduler_disc_render = torch.optim.lr_scheduler.MultiplicativeLR(opt_disc_render, lr_lambda)
@@ -133,25 +132,23 @@ class HumanRendering(pl.LightningModule):
         plt.savefig('images/losses.jpg')
 
     def from_batch_generate_image(self, batch):
-        now = datetime.now()
+        self.set_models_mode('eval', False)
         textures_applied = self.forward(batch)[1]
         generated_image = textures_applied[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy().astype(np.uint8)
         cv2.imwrite(f'images/genrated_texture.jpg', generated_image[:, :, :3])
-
         original_im = batch['sample']['image']
         generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
             255).cpu().numpy().astype(np.uint8)
         cv2.imwrite(f'images/original.jpg', generated_image)
-
         original_im = batch['target']['image']
         generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
             255).cpu().numpy().astype(np.uint8)
         cv2.imwrite(f'images/target.jpg', generated_image)
         cv2.imwrite(f'images/target.jpg', generated_image)
-
         rendered = self.forward(batch)[2]
         generated_image = rendered[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy().astype(np.uint8)
         cv2.imwrite(f'images/rendered.jpg', generated_image)
+        self.set_models_mode('train', False)
 
     def apply_texture(self, generated_textures, target_instances, target_uv_maps):
         uv_tensor = target_uv_maps.byte()
@@ -160,7 +157,24 @@ class HumanRendering(pl.LightningModule):
         output = self.texture_mapper(generated_textures, iuv_tensor)
         return output
 
-model = HumanRendering('/home/pkowaleczko/datasets/deepfashion/DeepfashionProcessed', batch_size=8)
+    def set_models_mode(self, mode, only_discriminators):
+        if mode == 'eval':
+            if not only_discriminators:
+                self.feature_net.eval()
+                self.render_net.eval()
+            for disc_feature, disc_render in zip(self.discriminators_feature, self.discriminators_render):
+                disc_feature.eval()
+                disc_render.eval()
+        if mode == 'train':
+            if not only_discriminators:
+                self.feature_net.train()
+                self.render_net.train()
+            for disc_feature, disc_render in zip(self.discriminators_feature, self.discriminators_render):
+                disc_feature.train()
+                disc_render.train()
 
-trainer = pl.Trainer(gpus=1, auto_select_gpus=True)
+
+model = HumanRendering('/home/pkowaleczko/datasets/deepfashion/single_person', batch_size=8)
+
+trainer = pl.Trainer(gpus=1, auto_select_gpus=True, max_epochs=10000)
 trainer.fit(model)
