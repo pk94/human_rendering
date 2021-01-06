@@ -55,8 +55,8 @@ def adversarial_loss(models, real_image, fake_image, is_discriminator, is_featur
 
 
 def inpainting_loss(features, input_texture, target_texture):
-    dist_in_gen = l1_distance(input_texture[:, :3, :, :], features[:, :3, :, :])
-    dist_tar_gen = l1_distance(target_texture[:, :3, :, :], features[:, :3, :, :])
+    dist_in_gen = l1_distance(input_texture, features[:, :3, :, :])
+    dist_tar_gen = l1_distance(target_texture, features[:, :3, :, :])
     return dist_in_gen + dist_tar_gen
 
 

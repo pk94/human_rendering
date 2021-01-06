@@ -52,8 +52,6 @@ class HumanRendering(pl.LightningModule):
         feature_out = self.feature_net(train_batch['sample']['texture'])
         feature_out_tex = self.apply_texture(feature_out, train_batch['target']['instances'],
                                              train_batch['target']['uv'])
-        perm = torch.LongTensor(np.concatenate([np.array([2, 1, 0]), np.arange(3, 16)]))
-        feature_out_tex = feature_out_tex[:, perm, :, :]
         render_out = self.render_net(feature_out_tex)
         return feature_out, feature_out_tex, render_out
 
@@ -133,20 +131,38 @@ class HumanRendering(pl.LightningModule):
 
     def from_batch_generate_image(self, batch):
         self.set_models_mode('eval', False)
-        textures_applied = self.forward(batch)[1]
-        generated_image = textures_applied[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy().astype(np.uint8)
+        textures, textures_applied, rendered = self.forward(batch)
+
+        generated_image = textures[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy(). \
+            astype(np.uint8)
+        cv2.imwrite(f'images/texture.jpg', generated_image[:, :, :3])
+
+        generated_image = textures_applied[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy().\
+            astype(np.uint8)
         cv2.imwrite(f'images/genrated_texture.jpg', generated_image[:, :, :3])
+
         original_im = batch['sample']['image']
         generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
             255).cpu().numpy().astype(np.uint8)
         cv2.imwrite(f'images/original.jpg', generated_image)
+
+        original_im = batch['sample']['texture']
+        generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
+            255).cpu().numpy().astype(np.uint8)
+        cv2.imwrite(f'images/original_texture.jpg', generated_image)
+
         original_im = batch['target']['image']
         generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
             255).cpu().numpy().astype(np.uint8)
         cv2.imwrite(f'images/target.jpg', generated_image)
-        cv2.imwrite(f'images/target.jpg', generated_image)
-        rendered = self.forward(batch)[2]
-        generated_image = rendered[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy().astype(np.uint8)
+
+        original_im = batch['target']['texture']
+        generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
+            255).cpu().numpy().astype(np.uint8)
+        cv2.imwrite(f'images/target_texture.jpg', generated_image)
+
+        generated_image = rendered[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy().\
+            astype(np.uint8)
         cv2.imwrite(f'images/rendered.jpg', generated_image)
         self.set_models_mode('train', False)
 

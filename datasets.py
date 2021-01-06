@@ -65,6 +65,9 @@ class DeepFashionDataset(Dataset):
         # target_file_path = sample_path
         sample_image, sample_instances, sample_textures, sample_uv = self.load_h5_file(sample_path)
         target_image, target_instances, target_textures, target_uv = self.load_h5_file(target_file_path)
+        perm = torch.LongTensor(np.array([2, 1, 0]))
+        sample_textures = sample_textures[perm, :, :]
+        target_textures = target_textures[perm, :, :]
         sample_dict = {
             'image': sample_image,
             'instances': sample_instances,
