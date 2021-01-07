@@ -61,8 +61,19 @@ class HumanRendering(pl.LightningModule):
         if optimizer_idx == 0:
             loss_inpainting = inpainting_loss(feature_out, train_batch['sample']['texture'],
                                               train_batch['target']['texture'])
+            loss_inpainting = torch.unsqueeze(loss_inpainting, -1)
             loss_adversarial_feature = adversarial_loss(self.discriminators_feature, train_batch['target']['image'],
                                                         feature_out_tex, is_discriminator=False, is_feature=True)
+            total_loss = loss_inpainting + loss_adversarial_feature
+            self.total_loss['generator'] = total_loss
+            logs = {'feature_gen_loss': total_loss}
+            model_dict = {
+                'loss': total_loss,
+                'log': logs
+            }
+            return model_dict
+
+        if optimizer_idx == 1:
             loss_adversarial_render = adversarial_loss(self.discriminators_render, train_batch['target']['image'],
                                                        render_out, is_discriminator=False, is_feature=False)
             self.vgg19(train_batch['target']['image'])
@@ -75,33 +86,47 @@ class HumanRendering(pl.LightningModule):
             loss_identity = face_identity_loss(self.face_rec, train_batch['sample']['image'],
                                                train_batch['sample']['instances'], train_batch['target']['image'],
                                                train_batch['target']['instances'], render_out, self.face_detector)
-            total_loss = (loss_adversarial_render + loss_adversarial_feature + loss_inpainting
-                          + 5 * loss_perceptual + 2 * loss_identity) / 5
-            self.total_loss['generator'] = total_loss
-            return total_loss
+            total_loss = (loss_adversarial_render + 15 * loss_perceptual + loss_identity) / 3
+            self.total_loss['generator'] += total_loss
+            logs = {'render_gen_loss': total_loss}
+            model_dict = {
+                'loss': total_loss,
+                'log': logs
+            }
+            return model_dict
 
         # train discriminator
-        if optimizer_idx == 1:
+        if optimizer_idx == 2:
             loss_adversarial_feature = adversarial_loss(self.discriminators_feature, train_batch['target']['image'],
                                                         feature_out_tex, is_discriminator=True, is_feature=True)
-            self.total_loss['discriminator'] += 2 * loss_adversarial_feature
-            return loss_adversarial_feature
+            self.total_loss['discriminator'] = loss_adversarial_feature
+            logs = {'feature_disc_loss': loss_adversarial_feature}
+            model_dict = {
+                'loss': loss_adversarial_feature,
+                'log': logs
+            }
+            return model_dict
 
-        if optimizer_idx == 2:
+        if optimizer_idx == 3:
             loss_adversarial_render = adversarial_loss(self.discriminators_render, train_batch['target']['image'],
                                                        render_out, is_discriminator=True, is_feature=False)
-            self.total_loss['discriminator'] += 2 * loss_adversarial_render
-            self.on_training_step_end()
+            self.total_loss['discriminator'] += loss_adversarial_render
+            # self.on_training_step_end()
             self.from_batch_generate_image(train_batch)
-            return loss_adversarial_render
+            logs = {'render_disc_loss': loss_adversarial_render}
+            model_dict = {
+                'loss': loss_adversarial_render,
+                'log': logs
+            }
+            return model_dict
 
     def configure_optimizers(self):
-        lr = 0.002
+        lr = 0.001
         b1 = 0.5
         b2 = 0.9
 
-        opt_gen = torch.optim.Adam(list(self.feature_net.parameters()) + list(self.render_net.parameters()),
-                                   lr=lr, betas=(b1, b2))
+        opt_gen_feature = torch.optim.Adam(list(self.feature_net.parameters()), lr=lr, betas=(b1, b2))
+        opt_gen_render = torch.optim.Adam(list(self.render_net.parameters()), lr=lr, betas=(b1, b2))
         opt_disc_feature = torch.optim.Adam(list(self.discriminators_feature[0].parameters()) +
                                             list(self.discriminators_feature[1].parameters()) +
                                             list(self.discriminators_feature[2].parameters()), lr=lr, betas=(b1, b2))
@@ -109,10 +134,12 @@ class HumanRendering(pl.LightningModule):
                                            list(self.discriminators_render[1].parameters()) +
                                            list(self.discriminators_render[2].parameters()), lr=lr, betas=(b1, b2))
         lr_lambda = lambda epoch: 0.9999
-        scheduler_gen = torch.optim.lr_scheduler.MultiplicativeLR(opt_gen, lr_lambda)
+        scheduler_gen_feature = torch.optim.lr_scheduler.MultiplicativeLR(opt_gen_feature, lr_lambda)
+        scheduler_gen_render = torch.optim.lr_scheduler.MultiplicativeLR(opt_gen_render, lr_lambda)
         scheduler_disc_feature = torch.optim.lr_scheduler.MultiplicativeLR(opt_disc_feature, lr_lambda)
         scheduler_disc_render = torch.optim.lr_scheduler.MultiplicativeLR(opt_disc_render, lr_lambda)
-        return [opt_gen, opt_disc_feature, opt_disc_render], [scheduler_gen, scheduler_disc_feature, scheduler_disc_render]
+        return [opt_gen_feature, opt_gen_render, opt_disc_feature, opt_disc_render], \
+               [scheduler_gen_feature, scheduler_gen_render, scheduler_disc_feature, scheduler_disc_render]
 
     def train_dataloader(self):
         dataset = DeepFashionDataset(self.data_path)
@@ -190,7 +217,7 @@ class HumanRendering(pl.LightningModule):
                 disc_render.train()
 
 
-model = HumanRendering('/home/pkowaleczko/datasets/deepfashion/single_person', batch_size=8)
+model = HumanRendering('/home/pkowaleczko/datasets/deepfashion/DeepfashionProcessed', batch_size=8)
 
 trainer = pl.Trainer(gpus=1, auto_select_gpus=True, max_epochs=10000)
 trainer.fit(model)

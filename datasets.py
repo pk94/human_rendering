@@ -58,11 +58,10 @@ class DeepFashionDataset(Dataset):
         person_id = int(str(sample_path.name).split('_')[0])
         target_files = [x for x in sample_id_path.iterdir() if x.is_file()]
         target_person_id = 0
-        target_file_path = ''
-        while target_person_id != person_id:
+        target_file_path = sample_path
+        while target_person_id != person_id and target_file_path == sample_path:
             target_file_path = random.choice(target_files)
             target_person_id = int(str(target_file_path.name).split('_')[0])
-        # target_file_path = sample_path
         sample_image, sample_instances, sample_textures, sample_uv = self.load_h5_file(sample_path)
         target_image, target_instances, target_textures, target_uv = self.load_h5_file(target_file_path)
         perm = torch.LongTensor(np.array([2, 1, 0]))
