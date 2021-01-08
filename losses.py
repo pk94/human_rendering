@@ -31,7 +31,7 @@ def perceptual_loss(ground_truth_activations, generated_activations):
     return loss
 
 
-def adversarial_loss(models, real_image, fake_image, is_discriminator, is_feature):
+def adversarial_loss(models, real_image, fake_image, is_discriminator):
     loss_function = nn.BCELoss()
     loss = 0
     activation = nn.Sigmoid()
@@ -40,10 +40,7 @@ def adversarial_loss(models, real_image, fake_image, is_discriminator, is_featur
             real_image_down = F.interpolate(real_image, scale_factor=1 / (2 ** idx), mode='bilinear')
             disc_real_out = activation(model(real_image_down))
         fake_image_down = F.interpolate(fake_image, scale_factor=1 / (2 ** idx), mode='bilinear')
-        if is_feature:
-            disc_fake_out = activation(model(fake_image_down[:, :3, :, :]))
-        else:
-            disc_fake_out = activation(model(fake_image_down))
+        disc_fake_out = activation(model(fake_image_down))
         if is_discriminator:
             real_loss = loss_function(disc_real_out, torch.ones_like(disc_real_out))
             fake_loss = loss_function(disc_fake_out, torch.zeros_like(disc_fake_out))
@@ -55,9 +52,15 @@ def adversarial_loss(models, real_image, fake_image, is_discriminator, is_featur
 
 
 def inpainting_loss(features, input_texture, target_texture):
-    dist_in_gen = l1_distance(input_texture[:, :3, :, :], features[:, :3, :, :])
-    dist_tar_gen = l1_distance(target_texture[:, :3, :, :], features[:, :3, :, :])
+    dist_in_gen = l1_distance((1 - calculate_texture_mask(input_texture)) * input_texture, features[:, :3, :, :])
+    dist_tar_gen = l1_distance((1 - calculate_texture_mask(target_texture)) * target_texture, features[:, :3, :, :])
     return dist_in_gen + dist_tar_gen
+
+def calculate_texture_mask(texture):
+    mask = torch.ones_like(texture)
+    indicies = texture != texture[0, 0, 0, 0]
+    mask[indicies] = 0
+    return mask
 
 
 def face_identity_loss(model, source_images, source_instances, target_images, target_instances, rendered_images,

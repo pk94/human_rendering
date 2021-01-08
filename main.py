@@ -26,8 +26,8 @@ class HumanRendering(pl.LightningModule):
         self.texture_mapper = MapDensePoseTexModule(256).eval()
         self.feature_net = FeatureNet(3, 16).to(device)
         self.render_net = RenderNet(16, 3).to(device)
-        self.discriminators = [PatchDiscriminator(3).to(device), PatchDiscriminator(3).to(device),
-                               PatchDiscriminator(3).to(device)]
+        self.discriminators = [PatchDiscriminator(6).to(device), PatchDiscriminator(6).to(device),
+                               PatchDiscriminator(6).to(device)]
         self.vgg19 = models.vgg19(pretrained=True).to(device).eval()
         self.face_detector = MTCNN(image_size=160, margin=15, device='cuda').eval()
         self.face_rec = InceptionResnetV1(pretrained='vggface2').eval().cuda()
@@ -50,21 +50,37 @@ class HumanRendering(pl.LightningModule):
         feature_out = self.feature_net(train_batch['sample']['texture'])
         feature_out_tex = self.apply_texture(feature_out, train_batch['target']['instances'],
                                              train_batch['target']['uv'])
-        perm = torch.LongTensor(np.concatenate([np.array([2, 1, 0]), np.arange(3, 16)]))
-        feature_out_tex = feature_out_tex[:, perm, :, :]
         render_out = self.render_net(feature_out_tex)
         return feature_out, feature_out_tex, render_out
 
     def training_step(self, train_batch, batch_nb, optimizer_idx):
         feature_out, feature_out_tex, render_out = self.forward(train_batch)
         # train generator
+        target_applied_texture = self.apply_texture(train_batch['target']['texture'],
+                                                    train_batch['target']['instances'], train_batch['target']['uv'])
+        real_gan_input = torch.cat((train_batch['target']['image'], target_applied_texture), 1)
+        fake_gan_input = torch.cat((render_out, feature_out_tex[:, :3, :, :]), 1)
+        generated_image = real_gan_input[0][:3, :, :].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy(). \
+            astype(np.uint8)
+        cv2.imwrite(f'images/a.jpg', generated_image[:, :, :3])
+        generated_image = real_gan_input[0][3:, :, :].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
+            255).cpu().numpy(). \
+            astype(np.uint8)
+        cv2.imwrite(f'images/b.jpg', generated_image[:, :, :3])
+        generated_image = fake_gan_input[0][:3, :, :].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
+            255).cpu().numpy(). \
+            astype(np.uint8)
+        cv2.imwrite(f'images/c.jpg', generated_image[:, :, :3])
+        generated_image = fake_gan_input[0][3:, :, :].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
+            255).cpu().numpy(). \
+            astype(np.uint8)
+        cv2.imwrite(f'images/d.jpg', generated_image[:, :, :3])
+
         if optimizer_idx == 0:
             loss_inpainting = inpainting_loss(feature_out, train_batch['sample']['texture'],
                                               train_batch['target']['texture'])
-            loss_adversarial_feature = adversarial_loss(self.discriminators, train_batch['target']['image'],
-                                                        feature_out_tex, is_discriminator=False, is_feature=True)
-            loss_adversarial_render = adversarial_loss(self.discriminators, train_batch['target']['image'],
-                                                       render_out, is_discriminator=False, is_feature=False)
+            loss_adversarial = adversarial_loss(self.discriminators, real_gan_input, fake_gan_input,
+                                                is_discriminator=False)
             self.vgg19(train_batch['target']['image'])
             ground_truth_activations = self.hook.outputs
             self.hook.clear()
@@ -75,19 +91,15 @@ class HumanRendering(pl.LightningModule):
             loss_identity = face_identity_loss(self.face_rec, train_batch['sample']['image'],
                                                train_batch['sample']['instances'], train_batch['target']['image'],
                                                train_batch['target']['instances'], render_out, self.face_detector)
-            total_loss = (loss_adversarial_render + loss_adversarial_feature + loss_inpainting
-                          + 5 * loss_perceptual + 2 * loss_identity) / 5
+            total_loss = (loss_adversarial + loss_inpainting + 5 * loss_perceptual + 2 * loss_identity) / 4
             self.total_loss['generator'] = total_loss
             return total_loss
 
         if optimizer_idx == 1:
-            loss_adversarial_feature = adversarial_loss(self.discriminators, train_batch['target']['image'],
-                                                        feature_out_tex, is_discriminator=True, is_feature=True)
-            loss_adversarial_render = adversarial_loss(self.discriminators, train_batch['target']['image'],
-                                                       render_out, is_discriminator=True, is_feature=False)
-            total_loss = loss_adversarial_feature + loss_adversarial_render
+            loss_adversarial = adversarial_loss(self.discriminators, real_gan_input, fake_gan_input,
+                                                is_discriminator=True)
+            total_loss = loss_adversarial
             self.total_loss['discriminator'] = total_loss
-            self.on_training_step_end()
             self.from_batch_generate_image(train_batch)
             return total_loss
 
@@ -101,7 +113,7 @@ class HumanRendering(pl.LightningModule):
         opt_disc = torch.optim.Adam(list(self.discriminators[0].parameters()) +
                                     list(self.discriminators[1].parameters()) +
                                     list(self.discriminators[2].parameters()), lr=lr, betas=(b1, b2))
-        lr_lambda = lambda epoch: 0.9999
+        lr_lambda = lambda epoch: 0.95
         scheduler_gen = torch.optim.lr_scheduler.MultiplicativeLR(opt_gen, lr_lambda)
         scheduler_disc = torch.optim.lr_scheduler.MultiplicativeLR(opt_disc, lr_lambda)
         return [opt_gen, opt_disc], [scheduler_gen, scheduler_disc]
@@ -123,22 +135,38 @@ class HumanRendering(pl.LightningModule):
 
     def from_batch_generate_image(self, batch):
         self.set_models_mode('eval', False)
-        textures_applied = self.forward(batch)[1]
-        generated_image = textures_applied[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
-            255).cpu().numpy().astype(np.uint8)
+        textures, textures_applied, rendered = self.forward(batch)
+
+        generated_image = textures[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy(). \
+            astype(np.uint8)
+        cv2.imwrite(f'images/texture.jpg', generated_image[:, :, :3])
+
+        generated_image = textures_applied[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy().\
+            astype(np.uint8)
         cv2.imwrite(f'images/genrated_texture.jpg', generated_image[:, :, :3])
+
         original_im = batch['sample']['image']
         generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
             255).cpu().numpy().astype(np.uint8)
         cv2.imwrite(f'images/original.jpg', generated_image)
+
+        original_im = batch['sample']['texture']
+        generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
+            255).cpu().numpy().astype(np.uint8)
+        cv2.imwrite(f'images/original_texture.jpg', generated_image)
+
         original_im = batch['target']['image']
         generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
             255).cpu().numpy().astype(np.uint8)
         cv2.imwrite(f'images/target.jpg', generated_image)
-        cv2.imwrite(f'images/target.jpg', generated_image)
-        rendered = self.forward(batch)[2]
-        generated_image = rendered[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy().astype(
-            np.uint8)
+
+        original_im = batch['target']['texture']
+        generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
+            255).cpu().numpy().astype(np.uint8)
+        cv2.imwrite(f'images/target_texture.jpg', generated_image)
+
+        generated_image = rendered[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy().\
+            astype(np.uint8)
         cv2.imwrite(f'images/rendered.jpg', generated_image)
         self.set_models_mode('train', False)
 
