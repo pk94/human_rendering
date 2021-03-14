@@ -11,19 +11,19 @@ class DoubleConv(nn.Module):
         if relu_last:
             self.double_conv = nn.Sequential(
                 nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
-                nn.BatchNorm2d(mid_channels),
+                nn.InstanceNorm2d(mid_channels),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
-                nn.BatchNorm2d(out_channels),
+                nn.InstanceNorm2d(out_channels),
                 nn.ReLU(inplace=True)
             )
         else:
             self.double_conv = nn.Sequential(
                 nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
-                nn.BatchNorm2d(mid_channels),
+                nn.InstanceNorm2d(mid_channels),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
-                nn.BatchNorm2d(out_channels),
+                nn.InstanceNorm2d(out_channels),
             )
 
     def forward(self, x):
@@ -47,7 +47,7 @@ class DownsampleBlockStride(nn.Module):
         super().__init__()
         self.down_conv = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=1, stride=2),
-            nn.BatchNorm2d(out_channels),
+            nn.InstanceNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
 
@@ -62,10 +62,10 @@ class UpsampleBlock(nn.Module):
 
         # if bilinear, use the normal convolutions to reduce the number of channels
         if bilinear:
-            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            self.up = nn.Upsample(scale_factor=2, mode='nearest')
             self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
         else:
-            self.up = nn.ConvTranspose2d(in_channels , in_channels // 2, kernel_size=2, stride=2)
+            self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
             self.conv = DoubleConv(in_channels, out_channels)
 
 
@@ -86,8 +86,10 @@ class UpsampleBlockRender(nn.Module):
         super().__init__()
 
         self.up = nn.Sequential(
-            nn.ConvTranspose2d(in_channels , out_channels, kernel_size=3, stride=2, output_padding=1, padding=1),
-            nn.BatchNorm2d(out_channels),
+            # nn.ConvTranspose2d(in_channels , out_channels, kernel_size=3, stride=2, output_padding=1, padding=1),
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.InstanceNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
 
@@ -101,12 +103,12 @@ class ResidualBlock(nn.Module):
 
         self.conv_block1 = nn.Sequential(
             nn.Conv2d(channel_num, channel_num, 3, padding=1),
-            nn.BatchNorm2d(channel_num),
+            nn.InstanceNorm2d(channel_num),
             nn.ReLU(),
         )
         self.conv_block2 = nn.Sequential(
             nn.Conv2d(channel_num, channel_num, 3, padding=1),
-            nn.BatchNorm2d(channel_num),
+            nn.InstanceNorm2d(channel_num),
         )
         self.relu = nn.ReLU()
 

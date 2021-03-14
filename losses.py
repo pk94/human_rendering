@@ -2,7 +2,7 @@ from render_net import *
 import torch
 from facenet_pytorch import extract_face
 import cv2
-from facenet_pytorch import InceptionResnetV1
+import numpy as np
 
 
 class SaveOutput:
@@ -24,9 +24,6 @@ def l1_distance(tensor, tensor_sub):
 def perceptual_loss(ground_truth_activations, generated_activations):
     loss = 0
     for ground_truth_activation, generated_activation in zip(ground_truth_activations, generated_activations):
-        num_elements = 1
-        for dim in ground_truth_activation.size()[1:]:
-            num_elements *= dim
         loss += l1_distance(ground_truth_activation, generated_activation) / len(ground_truth_activations)
     return loss
 
@@ -55,9 +52,15 @@ def adversarial_loss(models, real_image, fake_image, is_discriminator, is_featur
 
 
 def inpainting_loss(features, input_texture, target_texture):
-    dist_in_gen = l1_distance(input_texture, features[:, :3, :, :])
-    dist_tar_gen = l1_distance(target_texture, features[:, :3, :, :])
+    dist_in_gen = l1_distance((1 - calculate_texture_mask(input_texture)) * input_texture, features[:, :3, :, :])
+    dist_tar_gen = l1_distance((1 - calculate_texture_mask(target_texture)) * target_texture, features[:, :3, :, :])
     return dist_in_gen + dist_tar_gen
+
+def calculate_texture_mask(texture):
+    mask = torch.ones_like(texture)
+    indicies = texture != texture[0, 0, 0, 0]
+    mask[indicies] = 0
+    return mask
 
 
 def face_identity_loss(model, source_images, source_instances, target_images, target_instances, rendered_images,
