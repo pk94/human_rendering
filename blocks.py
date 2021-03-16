@@ -62,7 +62,7 @@ class UpsampleBlock(nn.Module):
 
         # if bilinear, use the normal convolutions to reduce the number of channels
         if bilinear:
-            self.up = nn.Upsample(scale_factor=2, mode='nearest')
+            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
             self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
         else:
             self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
@@ -87,7 +87,7 @@ class UpsampleBlockRender(nn.Module):
 
         self.up = nn.Sequential(
             # nn.ConvTranspose2d(in_channels , out_channels, kernel_size=3, stride=2, output_padding=1, padding=1),
-            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
             nn.InstanceNorm2d(out_channels),
             nn.ReLU(inplace=True)

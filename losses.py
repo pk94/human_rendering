@@ -15,10 +15,20 @@ class SaveOutput:
     def clear(self):
         self.outputs = []
 
-
 def l1_distance(tensor, tensor_sub):
     diff_tensor = torch.abs(tensor - tensor_sub)
     return torch.mean(diff_tensor)
+
+def fourier_loss(generated_images, target_images):
+    loss = 0
+    for generated_image, target_image in zip(generated_images, target_images):
+        for channel_generated_image, channel_target_image in zip(generated_image, target_image):
+            gen_img = channel_generated_image.add(1).true_divide(2).mul(255).detach().cpu().numpy()
+            tar_img = channel_target_image.add(1).true_divide(2).mul(255).detach().cpu().numpy()
+            gen_fft = torch.tensor(20 * np.log(np.abs(np.fft.fftshift(np.fft.fft2(gen_img)))))
+            tar_fft = torch.tensor(20 * np.log(np.abs(np.fft.fftshift(np.fft.fft2(tar_img)))))
+            loss += l1_distance(gen_fft, tar_fft)
+    return loss / (generated_images.shape[0] * generated_images.shape[1])
 
 
 def perceptual_loss(ground_truth_activations, generated_activations):

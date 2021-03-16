@@ -89,8 +89,9 @@ class HumanRendering(pl.LightningModule):
                                                train_batch['sample']['instances'], train_batch['target']['image'],
                                                train_batch['target']['instances'], render_out, self.face_detector)
             # contextual_loss = self.contextual_loss(train_batch['sample']['image'], train_batch['target']['image'])
+            fft_loss = fourier_loss(render_out, train_batch['target']['image'])
             total_loss = (loss_adversarial_render + loss_adversarial_feature + loss_inpainting
-                          + 5 * loss_perceptual + 2 * loss_identity) / 5
+                          + 5 * loss_perceptual + 2 * loss_identity + 2 * fft_loss) / 6
             self.total_loss['generator'] = total_loss
             return total_loss
 
@@ -216,5 +217,5 @@ class HumanRendering(pl.LightningModule):
 
 model = HumanRendering('/home/pkowaleczko/datasets/deepfashion/deepfashion_filtered', batch_size=4)
 
-trainer = pl.Trainer(gpus=1, auto_select_gpus=True, max_epochs=10000, resume_from_checkpoint='/home/pkowaleczko/projects/human_rendering/lightning_logs/version_157/checkpoints/epoch=40.ckpt')
+trainer = pl.Trainer(gpus=1, auto_select_gpus=True, max_epochs=10000, resume_from_checkpoint='/home/pkowaleczko/projects/human_rendering/lightning_logs/version_0/checkpoints/epoch=13.ckpt')
 trainer.fit(model)
