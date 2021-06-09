@@ -3,7 +3,7 @@ import torch
 from facenet_pytorch import extract_face
 import cv2
 import numpy as np
-
+from helpers import *
 
 class SaveOutput:
     def __init__(self):
@@ -21,14 +21,18 @@ def l1_distance(tensor, tensor_sub):
 
 def fourier_loss(generated_images, target_images):
     loss = 0
-    for generated_image, target_image in zip(generated_images, target_images):
-        for channel_generated_image, channel_target_image in zip(generated_image, target_image):
-            gen_img = channel_generated_image.add(1).true_divide(2).mul(255).detach().cpu().numpy()
-            tar_img = channel_target_image.add(1).true_divide(2).mul(255).detach().cpu().numpy()
-            gen_fft = torch.tensor(20 * np.log(np.abs(np.fft.fftshift(np.fft.fft2(gen_img)))))
-            tar_fft = torch.tensor(20 * np.log(np.abs(np.fft.fftshift(np.fft.fft2(tar_img)))))
-            loss += l1_distance(gen_fft, tar_fft)
+    kernel = reverseUnitCycleKernel(20 * np.pi, 256)
+    for idx, (generated_image, target_image) in enumerate(zip(generated_images, target_images)):
+        gen_img = generated_image.permute((1, 2, 0)).add(1).true_divide(2).mul(255).detach().cpu().numpy()
+        tar_img = target_image.permute((1, 2, 0)).add(1).true_divide(2).mul(255).detach().cpu().numpy()
+        gen_fft = fourierTransformGray(gen_img) * kernel
+        tar_fft = fourierTransformGray(tar_img) * kernel
+        if idx == 0:
+            cv2.imwrite(f'images/rendered_fft.jpg', gen_fft)
+            cv2.imwrite(f'images/target_fft.jpg', tar_fft)
+        loss += l1_distance(torch.tensor(gen_fft), torch.tensor(tar_fft))
     return loss / (generated_images.shape[0] * generated_images.shape[1])
+
 
 
 def perceptual_loss(ground_truth_activations, generated_activations):

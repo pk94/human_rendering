@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 from losses import SaveOutput
+import random
 
 def load_h5_file(path):
     with h5py.File(path, mode="r") as h5_file:
@@ -91,6 +92,18 @@ def get_face_embeddings(dataset_path):
                     except Exception as e:
                         embedding = torch.zeros((1, 512))
 
+def eval_split(data_path, num_pairs=100):
+    files_list = set()
+    for path, subdirs, files in os.walk(data_path):
+        for filenamename in files:
+            if filenamename.endswith('h5'):
+                files_list.add(path)
+    files_list = list(files_list)
+    sample = random.sample(files_list, num_pairs)
+    with open("test_pairs.txt", "w") as output:
+        [output.writelines(f'{s}\n') for s in sample]
 
-get_face_embeddings('/home/pkowaleczko/datasets/deepfashion/deepfashion_filtered')
+eval_split('/home/pkowaleczko/datasets/deepfashion/deepfashion_paired/deepfashion_paired')
+
+# get_face_embeddings('/home/pkowaleczko/datasets/deepfashion/deepfashion_filtered')
 # parse_deepfashion()
