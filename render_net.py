@@ -18,6 +18,7 @@ class RenderNet(nn.Module):
         self.conv_out = nn.Conv2d(n_channels, n_classes, kernel_size=7, padding=3)
         self.activation = nn.Tanh()
 
+
     def forward(self, x):
         x = self.conv_in(x)
         x = self.down1(x)
