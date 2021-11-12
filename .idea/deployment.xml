@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="pkowaleczko@titan7:22 key" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="pkowaleczko@jupyter:22 agent" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
-      <paths name="pkowaleczko@titan7:22 (2)">
+      <paths name="pkowaleczko@jupyter:22">
         <serverdata>
           <mappings>
-            <mapping deploy="/tmp/pycharm_project_522" local="$PROJECT_DIR$" />
+            <mapping local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
-      <paths name="pkowaleczko@titan7:22 key">
+      <paths name="pkowaleczko@jupyter:22 agent">
         <serverdata>
           <mappings>
             <mapping deploy="/home/pkowaleczko/projects/human_rendering" local="$PROJECT_DIR$" />

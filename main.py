@@ -1,6 +1,5 @@
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import torchvision.models as models
 import pytorch_lightning as pl
 from feature_net import *
@@ -16,7 +15,7 @@ from datetime import datetime
 import torchvision.transforms as transforms
 import shutil
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class HumanRendering(pl.LightningModule):
