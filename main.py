@@ -1,29 +1,23 @@
-import os
-
 import torchvision.models as models
 import pytorch_lightning as pl
 from feature_net import *
 from losses import *
 from datasets import *
 from textures import MapDensePoseTexModule
-import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 import cv2
 from facenet_pytorch import MTCNN, InceptionResnetV1
 import torch
-from datetime import datetime
 import torchvision.transforms as transforms
-import shutil
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class HumanRendering(pl.LightningModule):
-
-    def __init__(self, data_path, batch_size=64):
+    def __init__(self, checkpoint_path, batch_size=64):
         super(HumanRendering, self).__init__()
+        self.checkpoint_path = checkpoint_path
         self.save_hyperparameters()
-        self.data_path = data_path
         self.batch_size = batch_size
         self.texture_mapper = MapDensePoseTexModule(256).eval()
         self.feature_net = FeatureNet(3, 16).to(device)
@@ -37,20 +31,21 @@ class HumanRendering(pl.LightningModule):
         self.face_rec = InceptionResnetV1(pretrained='vggface2').eval().cuda()
         self.hook = SaveOutput()
         self.vgg19_normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        self.model_num = 0
         # self.contextual_loss = cl.ContextualLoss()
         hook_handles = []
         for idx, layer in enumerate(self.vgg19.features):
             if isinstance(layer, nn.ReLU):
                 handle = layer.register_forward_hook(self.hook)
                 hook_handles.append(handle)
-        self.total_loss = {
-            'generator': 0,
-            'discriminator': 0
-        }
-        self.losses = {
-            'generator': [],
-            'discriminator': []
-        }
+        # self.total_loss = {
+        #     'generator': 0,
+        #     'discriminator': 0
+        # }
+        # self.losses = {
+        #     'generator': [],
+        #     'discriminator': []
+        # }
 
     def forward(self, train_batch):
         feature_out = self.feature_net(train_batch['sample']['texture'])
@@ -63,10 +58,10 @@ class HumanRendering(pl.LightningModule):
         feature_out, feature_out_tex, render_out = self.forward(train_batch)
         target_applied_texture = self.apply_texture(train_batch['target']['texture'],
                                                     train_batch['target']['instances'], train_batch['target']['uv'])
-
-        generated_image = target_applied_texture[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
-            255).cpu().numpy().astype(np.uint8)
-        cv2.imwrite(f'images/target_applied_texture.jpg', generated_image)
+        #
+        # generated_image = target_applied_texture[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
+        #     255).cpu().numpy().astype(np.uint8)
+        # cv2.imwrite(f'images/target_applied_texture.jpg', generated_image)
 
         # train generator
         if optimizer_idx == 0:
@@ -89,10 +84,10 @@ class HumanRendering(pl.LightningModule):
                                                train_batch['sample']['instances'], train_batch['target']['image'],
                                                train_batch['target']['instances'], render_out, self.face_detector)
             # contextual_loss = self.contextual_loss(train_batch['sample']['image'], train_batch['target']['image'])
-            fft_loss = fourier_loss(render_out, train_batch['target']['image'])
-            total_loss = (loss_adversarial_render + loss_adversarial_feature + loss_inpainting
-                          + 5 * loss_perceptual + 2 * loss_identity + 3 * fft_loss) / 6
-            self.total_loss['generator'] = total_loss
+            # fft_loss = fourier_loss(render_out, train_batch['target']['image'])
+            total_loss = (2 * loss_adversarial_render + loss_adversarial_feature + 2 * loss_inpainting
+                          + 5 * loss_perceptual + 2 * loss_identity) / 5
+            # self.total_loss['generator'] = total_loss
             self.log('gen_adversarial_render', loss_adversarial_render)
             self.log('gen_adversarial_feature', loss_adversarial_feature)
             return total_loss
@@ -101,49 +96,40 @@ class HumanRendering(pl.LightningModule):
         if optimizer_idx == 1:
             loss_adversarial_feature = adversarial_loss(self.discriminators_feature, target_applied_texture,
                                                         feature_out_tex, is_discriminator=True, is_feature=True)
-            self.total_loss['discriminator'] += loss_adversarial_feature
+            # self.total_loss['discriminator'] += loss_adversarial_feature
             self.log('disc_adversarial_feature', loss_adversarial_feature)
             return loss_adversarial_feature
 
         if optimizer_idx == 2:
             loss_adversarial_render = adversarial_loss(self.discriminators_render, train_batch['target']['image'],
                                                        render_out, is_discriminator=True, is_feature=False)
-            self.total_loss['discriminator'] += loss_adversarial_render
+            # self.total_loss['discriminator'] += loss_adversarial_render
             self.log('disc_adversarial_render', loss_adversarial_render)
-            self.from_batch_generate_image(train_batch, False)
             return loss_adversarial_render
 
-    def test_step(self, train_batch, batch_nb):
-        feature_out, feature_out_tex, render_out = self.forward(train_batch)
+    def validation_step(self, val_batch, batch_nb):
+        feature_out, feature_out_tex, render_out = self.forward(val_batch)
         for idx in range(feature_out.shape[0]):
-            path = f'test/pair{batch_nb * 4 + idx}'
+            path = f'tests/test_{self.model_num}/pair{batch_nb * 4 + idx}'
             if not os.path.exists(path):
                 os.makedirs(path)
             self.save_img(render_out[idx], path + '/rendered.jpg')
-            self.save_img(train_batch['sample']['image'][idx], path + '/source.jpg')
-            self.save_img(train_batch['sample']['texture'][idx], path + '/source_texture.jpg')
-            self.save_uv(train_batch['sample']['uv'][idx], path + '/source_pose.jpg')
-            self.save_img(train_batch['target']['image'][idx], path + '/target.jpg')
-            self.save_uv(train_batch['target']['uv'][idx], path + '/target_pose.jpg')
+            self.save_img(val_batch['sample']['image'][idx], path + '/source.jpg')
+            self.save_img(val_batch['sample']['texture'][idx], path + '/source_texture.jpg')
+            self.save_uv(val_batch['sample']['uv'][idx], path + '/source_pose.jpg')
+            self.save_img(val_batch['target']['image'][idx], path + '/target.jpg')
+            self.save_uv(val_batch['target']['uv'][idx], path + '/target_pose.jpg')
             self.save_img(feature_out[idx], path + '/generated_texture.jpg', False)
             self.save_img(feature_out_tex[idx], path + '/texture_applied.jpg', False)
-        # for idx, (source, target, feature, feature_tex, render) in enumerate(zip(train_batch['sample']['image'],
-        #                                                                          train_batch['target']['image'],
-        #                                                                          feature_out, feature_out_tex,
-        #                                                                          render_out)):
-        #     path = f'test/pair{batch_nb * 4 + idx}'
-        #     if not os.path.exists(path):
-        #         os.makedirs(path)
-        #     self.save_img(render, path + '/rendered.jpg')
-        #     self.save_img(source, path + '/source.jpg')
-        #     self.save_img(target, path + '/target.jpg')
-            # self.save_img(feature, path + '/texture.jpg')
-            # self.save_img(feature_tex, path + '/texture_applied.jpg')
 
+    def on_validation_end(self):
+        checkpoints_num = [int(f.split("_")[-1][:-5]) for f in os.listdir(self.checkpoint_path) if os.path.isfile(os.path.join(self.checkpoint_path, f))]
+        self.model_num = max(checkpoints_num) + 1
+        self.trainer.save_checkpoint(self.checkpoint_path + f"checkpoint_{self.model_num}.ckpt")
 
     def configure_optimizers(self):
-        lr = 0.0002
-        b1 = 0.5
+        lr = 0.0001
+        b1 = 0.4
         b2 = 0.9
 
         opt_gen = torch.optim.Adam(list(self.feature_net.parameters()) + list(self.render_net.parameters()),
@@ -162,23 +148,12 @@ class HumanRendering(pl.LightningModule):
                                                               scheduler_disc_render]
 
     def train_dataloader(self):
-        dataset = DeepFashionPairedDataset(self.data_path)
-        return DataLoader(dataset, batch_size=self.batch_size, num_workers=4)
+        dataset = DeepFashionCSV("csv_files/train.csv")
+        return DataLoader(dataset, batch_size=self.batch_size, num_workers=8)
 
-    def test_dataloader(self):
-        dataset = DeepFashionPairedTestDataset('test_pairs.txt')
-        return DataLoader(dataset, batch_size=self.batch_size, num_workers=4)
-
-    def on_training_step_end(self):
-        self.losses['generator'].append(self.total_loss['generator'])
-        self.losses['discriminator'].append(self.total_loss['discriminator'])
-        self.total_loss['discriminator'] = 0
-        plt.clf()
-        plt.title('Losses')
-        plt.plot(self.losses['generator'], label='Generator loss')
-        plt.plot(self.losses['discriminator'], label='Discriminator loss')
-        plt.legend()
-        plt.savefig('images/losses.jpg')
+    def val_dataloader(self):
+        dataset = DeepFashionCSV("csv_files/test.csv")
+        return DataLoader(dataset, batch_size=self.batch_size, num_workers=8)
 
     def save_img(self, tensor, savepath, more_channels=True):
         img = tensor.detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy().astype(np.uint8) if \
@@ -190,54 +165,6 @@ class HumanRendering(pl.LightningModule):
         img = np.stack((u, v, (u + v) * 0.5), axis=-1).astype(np.uint8)
         cv2.imwrite(savepath, img)
 
-    def from_batch_generate_image(self, batch, save_every=False):
-        save_images_path = 'saved_images'
-        if save_every:
-            now = datetime.now()
-            os.makedirs(f'{save_images_path}/{now}')
-        savepath = f'{save_images_path}/{now}/' if save_every else 'images/'
-        self.set_models_mode('eval', False)
-        textures, textures_applied, rendered = self.forward(batch)
-
-        generated_image = textures[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy(). \
-            astype(np.uint8)
-        cv2.imwrite(f'{savepath}/texture.jpg', generated_image[:, :, :3])
-
-        generated_image = textures_applied[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy(). \
-            astype(np.uint8)
-        cv2.imwrite(f'{savepath}/genrated_texture.jpg', generated_image[:, :, :3])
-
-        original_im = batch['sample']['image']
-        generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
-            255).cpu().numpy().astype(np.uint8)
-        cv2.imwrite(f'{savepath}/original.jpg', generated_image)
-
-        original_im = batch['sample']['texture']
-        generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
-            255).cpu().numpy().astype(np.uint8)
-        cv2.imwrite(f'{savepath}/original_texture.jpg', generated_image)
-
-        original_im = batch['target']['image']
-        generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
-            255).cpu().numpy().astype(np.uint8)
-        cv2.imwrite(f'{savepath}/target.jpg', generated_image)
-
-        original_im = batch['target']['texture']
-        generated_image = original_im[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
-            255).cpu().numpy().astype(np.uint8)
-        cv2.imwrite(f'{savepath}/target_texture.jpg', generated_image)
-
-        generated_image = rendered[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(255).cpu().numpy(). \
-            astype(np.uint8)
-        cv2.imwrite(f'{savepath}/rendered.jpg', generated_image)
-
-        target_applied_texture = self.apply_texture(batch['target']['texture'], batch['target']['instances'], batch['target']['uv'])
-        generated_image = target_applied_texture[0].detach().permute((1, 2, 0)).add(1).true_divide(2).mul(
-            255).cpu().numpy().astype(np.uint8)
-        cv2.imwrite(f'{savepath}/target_applied_texture.jpg', generated_image)
-
-        self.set_models_mode('train', False)
-
     def apply_texture(self, generated_textures, target_instances, target_uv_maps):
         uv_tensor = target_uv_maps.byte()
         instances_tensor = target_instances.byte()
@@ -245,26 +172,10 @@ class HumanRendering(pl.LightningModule):
         output = self.texture_mapper(generated_textures, iuv_tensor)
         return output
 
-    def set_models_mode(self, mode, only_discriminators):
-        if mode == 'eval':
-            if not only_discriminators:
-                self.feature_net.eval()
-                self.render_net.eval()
-            for disc_feature, disc_render in zip(self.discriminators_feature, self.discriminators_render):
-                disc_feature.eval()
-                disc_render.eval()
-        if mode == 'train':
-            if not only_discriminators:
-                self.feature_net.train()
-                self.render_net.train()
-            for disc_feature, disc_render in zip(self.discriminators_feature, self.discriminators_render):
-                disc_feature.train()
-                disc_render.train()
 
+model = HumanRendering(checkpoint_path="checkpoints/", batch_size=8)
 
-model = HumanRendering('/home/pkowaleczko/datasets/deepfashion/deepfashion_paired', batch_size=4)
-
-trainer = pl.Trainer(gpus=1, auto_select_gpus=True, max_epochs=105, resume_from_checkpoint='/home/pkowaleczko/projects/human_rendering/lightning_logs/basic_last/checkpoints/epoch=102.ckpt')
-trainer.test(model)
+trainer = pl.Trainer(gpus=1, auto_select_gpus=True, val_check_interval=0.5, max_epochs=1000, resume_from_checkpoint="/home/pkowaleczko/projects/human_rendering/checkpoints/checkpoint_115.ckpt")
+trainer.fit(model)
 
 # trainer.fit(model)
